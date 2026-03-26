@@ -1,7 +1,23 @@
-$host = getenv('DB_HOST');
-$user = getenv('DB_USER');
-$pass = getenv('DB_PASS');
-$db   = getenv('DB_NAME');
-$port = getenv('DB_PORT') ?: '3306';
+<?php
+// Database.php
 
-$conn = new mysqli($host, $user, $pass, $db, $port);
+$databaseUrl = getenv('INTERNAL_URL') ?: getenv('DATABASE_URL');
+
+try {
+    $conn = new PDO($databaseUrl);
+    
+    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+} catch (PDOException $e) {
+    // If the connection fails
+    error_log("Connection failed: " . $e->getMessage());
+    die("Database connection error. Please check your logs.");
+}
+
+function runQuery($sql, $params = []) {
+    global $conn;
+    $stmt = $conn->prepare($sql);
+    $stmt->execute($params);
+    return $stmt;
+}
+?>
