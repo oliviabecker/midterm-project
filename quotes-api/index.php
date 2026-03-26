@@ -1,13 +1,30 @@
 <?php
+
 header("Access-Control-Allow-Origin: *");
-header('Content-Type: application/json');
+header("Content-Type: application/json; charset=UTF-8");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+
+
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    exit;
+}
+
 require __DIR__ . '/config/Database.php';
 
-// --------------------------------------------------------
-// API LOGIC
-// --------------------------------------------------------
+
 $method = $_SERVER['REQUEST_METHOD'];
-$route = isset($_GET['route']) ? $_GET['route'] : 'quotes';
+$request_uri = $_SERVER['REQUEST_URI'];
+
+
+$path = parse_url($request_uri, PHP_URL_PATH);
+$path_parts = explode('/', trim($path, '/'));
+$route = end($path_parts); 
+
+if (!$route || $route === 'api') {
+    $route = isset($_GET['route']) ? $_GET['route'] : 'quotes';
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 $response = [];
 
@@ -42,7 +59,7 @@ try {
             break;
 
         case 'POST':
-            if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
+            if ($route === 'quotes' && isset($input['quote'])) {
                 $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
                 $stmt->execute([$input['quote'], $input['author_id'], $input['category_id']]);
                 $response = ['id' => $conn->lastInsertId(), 'message' => 'Quote Created'];
@@ -50,7 +67,7 @@ try {
             break;
 
         case 'PUT':
-            if ($route === 'quotes' && isset($input['id'], $input['quote'], $input['author_id'], $input['category_id'])) {
+            if ($route === 'quotes' && isset($input['id'])) {
                 $stmt = $conn->prepare("UPDATE quotes SET quote=?, author_id=?, category_id=? WHERE id=?");
                 $stmt->execute([$input['quote'], $input['author_id'], $input['category_id'], $input['id']]);
                 $response = ['message' => 'Quote Updated'];
@@ -68,6 +85,5 @@ try {
 } catch (PDOException $e) {
     $response = ['error' => 'Database error: ' . $e->getMessage()];
 }
-
 
 echo json_encode($response ?: ['message' => 'No Data Found'], JSON_PRETTY_PRINT);
