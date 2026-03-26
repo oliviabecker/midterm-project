@@ -68,8 +68,5 @@ try {
     $response = ['error' => 'Database error: ' . $e->getMessage()];
 }
 
-echo json_encode($response ?: ['message' => 'No Data Found'], JSON_PRETTY_PRINT);
-?>
 
 echo json_encode($response ?: ['message' => 'No Data Found'], JSON_PRETTY_PRINT);
-?>
