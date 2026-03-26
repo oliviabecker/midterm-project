@@ -1,20 +1,25 @@
 <?php
 // config/Database.php
 
-
 $databaseUrl = getenv('DATABASE_URL');
 
 try {
     if (!$databaseUrl) {
-        die("Error: DATABASE_URL is not set in Render Environment Variables.");
+        die("Error: DATABASE_URL is not set.");
     }
 
-    
-    $pdoUrl = str_replace("postgresql://", "pgsql:", $databaseUrl);
+    $dbparts = parse_url($databaseUrl);
 
-    // Create the connection
-    $conn = new PDO($pdoUrl);
-    
+    $host = $dbparts['host'];
+    $user = $dbparts['user'];
+    $pass = $dbparts['pass'];
+    $db   = ltrim($dbparts['path'], '/');
+
+   
+    $dsn = "pgsql:host=$host;dbname=$db;user=$user;password=$pass";
+
+   
+    $conn = new PDO($dsn);
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 } catch (PDOException $e) {
