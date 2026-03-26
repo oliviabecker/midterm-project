@@ -1,21 +1,34 @@
 <?php
-
+// 1. HEADERS & CORS (Essential for the Netlify Tester)
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
+// Handle preflight 'OPTIONS' requests
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') { exit; }
 
 require __DIR__ . '/config/Database.php';
 
+// --------------------------------------------------------
+// 2. TEMPORARY BULK IMPORT (To satisfy count requirements)
+// --------------------------------------------------------
 try {
-    $count = $conn->query("SELECT COUNT(*) FROM quotes")->fetchColumn();
-    if ($count < 25) {
+    $qCount = $conn->query("SELECT COUNT(*) FROM quotes")->fetchColumn();
+    $aCount = $conn->query("SELECT COUNT(*) FROM authors")->fetchColumn();
+    
+    if ($qCount < 25 || $aCount < 5) {
+        // Ensure at least 5 authors exist
+        $conn->exec("INSERT INTO authors (id, author) VALUES 
+            (1, 'Albert Einstein'), (2, 'Mark Twain'), (3, 'Maya Angelou'), 
+            (4, 'Oscar Wilde'), (5, 'J.K. Rowling') ON CONFLICT DO NOTHING");
+
+        // Ensure at least 4 categories exist
+        $conn->exec("INSERT INTO categories (id, category) VALUES 
+            (1, 'Life'), (2, 'Success'), (3, 'Philosophy'), (4, 'Wisdom'),
+            (5, 'Humor'), (6, 'Inspiration'), (7, 'Education') ON CONFLICT DO NOTHING");
         
-        $conn->exec("INSERT INTO categories (id, category) VALUES (5, 'Humor'), (6, 'Inspiration'), (7, 'Education') ON CONFLICT DO NOTHING");
-        
-        // quotes
+        // Add a large batch of quotes to hit the 25+ requirement
         $conn->exec("INSERT INTO quotes (quote, author_id, category_id) VALUES 
             ('Imagination is more important than knowledge.', 1, 7),
             ('It is better to remain silent and be thought a fool than to speak and remove all doubt.', 2, 5),
@@ -44,7 +57,7 @@ try {
             ('An unexamined life is not worth living.', 4, 3)
             ON CONFLICT DO NOTHING");
     }
-} catch (Exception $e) { /* Silent fail if data exists */ }
+} catch (Exception $e) { /* Silent fail */ }
 
 // --------------------------------------------------------
 // 3. API ROUTING LOGIC
@@ -65,9 +78,7 @@ $response = [];
 try {
     switch ($method) {
         case 'GET':
-           
-            ini_set('display_errors', 0);
-
+            ini_set('display_errors', 0); // Hide PHP notices from the tester
             $id = isset($_GET['id']) ? intval($_GET['id']) : null;
             $author_id = isset($_GET['author_id']) ? intval($_GET['author_id']) : null;
             $category_id = isset($_GET['category_id']) ? intval($_GET['category_id']) : null;
@@ -80,17 +91,13 @@ try {
                         JOIN categories c ON q.category_id = c.id";
                 
                 $where = [];
-                
-                if ($id) {
-                    $where[] = "q.id = $id";
-                } else {
+                if ($id) { $where[] = "q.id = $id"; }
+                else {
                     if ($author_id) $where[] = "q.author_id = $author_id";
                     if ($category_id) $where[] = "q.category_id = $category_id";
                 }
                 
                 if ($where) $sql .= " WHERE " . implode(' AND ', $where);
-                
-                
                 if (!$id) {
                     $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
                     $sql .= " LIMIT $limit";
@@ -99,21 +106,19 @@ try {
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                
-                if ($id && count($response) > 0) {
-                    echo json_encode($response[0], JSON_PRETTY_PRINT);
-                    exit;
-                } 
-               
-                elseif ($id) {
-                    echo json_encode(['message' => 'Quote Not Found']);
+                if ($id) {
+                    if (count($response) > 0) {
+                        echo json_encode($response[0], JSON_PRETTY_PRINT);
+                    } else {
+                        echo json_encode(['message' => 'No Quotes Found']);
+                    }
                     exit;
                 }
             } 
-            // Authors/Categories
             elseif ($route === 'authors' || $route === 'categories') {
-                $table = ($route === 'authors') ? 'authors' : 'categories';
-                $col = ($route === 'authors') ? 'author' : 'category';
+                $isAuthor = ($route === 'authors');
+                $table = $isAuthor ? 'authors' : 'categories';
+                $col = $isAuthor ? 'author' : 'category';
                 
                 $sql = "SELECT id, $col FROM $table";
                 if ($id) $sql .= " WHERE id = $id";
@@ -121,16 +126,18 @@ try {
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-                if ($id && count($response) > 0) {
-                    echo json_encode($response[0], JSON_PRETTY_PRINT);
-                    exit;
-                } elseif ($id) {
-                    echo json_encode(['message' => 'id Not Found']);
+                if ($id) {
+                    if (count($response) > 0) {
+                        echo json_encode($response[0], JSON_PRETTY_PRINT);
+                    } else {
+                        $errorMsg = $isAuthor ? 'author_id Not Found' : 'category_id Not Found';
+                        echo json_encode(['message' => $errorMsg]);
+                    }
                     exit;
                 }
             }
             break;
-        
+
         case 'POST':
             if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
                 $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
@@ -163,8 +170,5 @@ try {
     $response = ['message' => $e->getMessage()];
 }
 
-if (isset($id) && is_array($response) && count($response) === 1) {
-    echo json_encode($response[0], JSON_PRETTY_PRINT);
-} else {
-    echo json_encode($response, JSON_PRETTY_PRINT);
-}
+// Return array for general searches
+echo json_encode($response, JSON_PRETTY_PRINT);
