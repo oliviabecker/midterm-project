@@ -1,192 +1,95 @@
 <?php
 header('Content-Type: application/json');
+require 'Database.php'; // This uses the $conn variable we set up earlier
 
-$mysqli = new mysqli('localhost', 'root', 'root', 'quotesdb');
-if ($mysqli->connect_error) {
-    die(json_encode(['message' => 'DB Connection Failed']));
+// --------------------------------------------------------
+// 1. AUTO-IMPORT (Builds your tables and data on Render)
+// --------------------------------------------------------
+try {
+    $conn->exec("
+        CREATE TABLE IF NOT EXISTS authors (id SERIAL PRIMARY KEY, author VARCHAR(255) NOT NULL);
+        CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, category VARCHAR(255) NOT NULL);
+        CREATE TABLE IF NOT EXISTS quotes (
+            id SERIAL PRIMARY KEY, 
+            quote TEXT NOT NULL, 
+            author_id INT REFERENCES authors(id) ON DELETE CASCADE, 
+            category_id INT REFERENCES categories(id) ON DELETE CASCADE
+        );
+    ");
+
+    $count = $conn->query("SELECT COUNT(*) FROM quotes")->fetchColumn();
+    if ($count == 0) {
+        $conn->exec("INSERT INTO authors (id, author) VALUES (1, 'Albert Einstein'), (2, 'Mark Twain'), (3, 'Maya Angelou'), (4, 'Oscar Wilde'), (5, 'J.K. Rowling') ON CONFLICT DO NOTHING");
+        $conn->exec("INSERT INTO categories (id, category) VALUES (1, 'Life'), (2, 'Success'), (3, 'Philosophy'), (4, 'Wisdom') ON CONFLICT DO NOTHING");
+        $conn->exec("INSERT INTO quotes (id, quote, author_id, category_id) VALUES 
+            (1, 'Life is like riding a bicycle. To keep your balance you must keep moving.', 1, 1),
+            (2, 'The secret of getting ahead is getting started.', 2, 2),
+            (3, 'Try to be a rainbow in someone’s cloud.', 3, 4),
+            (4, 'Be yourself; everyone else is already taken.', 4, 3),
+            (10, 'It does not do to dwell on dreams and forget to live.', 5, 4),
+            (11, 'We do not need magic to transform our world; we carry all the power we need inside ourselves already.', 5, 4)
+            ON CONFLICT DO NOTHING");
+    }
+} catch (PDOException $e) {
+    // Silent fail for setup so it doesn't break the API output
 }
 
+// --------------------------------------------------------
+// 2. API LOGIC
+// --------------------------------------------------------
 $method = $_SERVER['REQUEST_METHOD'];
 $route = isset($_GET['route']) ? $_GET['route'] : 'quotes';
 $input = json_decode(file_get_contents('php://input'), true);
-
 $response = [];
 
 switch ($method) {
-    // --------------------- GET ---------------------
     case 'GET':
         $author_id = isset($_GET['author_id']) ? intval($_GET['author_id']) : null;
         $category_id = isset($_GET['category_id']) ? intval($_GET['category_id']) : null;
-        $random = isset($_GET['random']) ? true : false;
+        $random = isset($_GET['random']);
 
-        switch ($route) {
-            case 'quotes':
-                $query = "SELECT q.id, q.quote, q.author_id, q.category_id FROM quotes q";
-                $conditions = [];
-                if ($author_id) $conditions[] = "q.author_id = $author_id";
-                if ($category_id) $conditions[] = "q.category_id = $category_id";
-                if (count($conditions) > 0) $query .= " WHERE " . implode(' AND ', $conditions);
-                if ($random) $query .= " ORDER BY RAND()";
-                else $query .= " ORDER BY q.id";
-                $query .= " LIMIT 10";
-                $result = $mysqli->query($query);
-                if ($result && $result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) $response[] = $row;
-                } else {
-                    $response = ['message' => 'No Quotes Found'];
-                }
-                break;
-
-            case 'authors':
-                $query = "SELECT id, author FROM authors";
-                if ($author_id) $query .= " WHERE id = $author_id";
-                $result = $mysqli->query($query);
-                if ($result && $result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) $response[] = $row;
-                } else {
-                    $response = ['message' => 'author_id Not Found'];
-                }
-                break;
-
-            case 'categories':
-                $query = "SELECT id, category FROM categories";
-                if ($category_id) $query .= " WHERE id = $category_id";
-                $result = $mysqli->query($query);
-                if ($result && $result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) $response[] = $row;
-                } else {
-                    $response = ['message' => 'category_id Not Found'];
-                }
-                break;
-
-            default:
-                $response = ['message' => 'Invalid Route'];
+        if ($route === 'quotes') {
+            $sql = "SELECT id, quote, author_id, category_id FROM quotes";
+            $where = [];
+            if ($author_id) $where[] = "author_id = $author_id";
+            if ($category_id) $where[] = "category_id = $category_id";
+            if ($where) $sql .= " WHERE " . implode(' AND ', $where);
+            $sql .= $random ? " ORDER BY RANDOM()" : " ORDER BY id";
+            $sql .= " LIMIT 10";
+            $response = $conn->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        } elseif ($route === 'authors') {
+            $sql = "SELECT id, author FROM authors" . ($author_id ? " WHERE id = $author_id" : "");
+            $response = $conn->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        } elseif ($route === 'categories') {
+            $sql = "SELECT id, category FROM categories" . ($category_id ? " WHERE id = $category_id" : "");
+            $response = $conn->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         }
         break;
 
-    // --------------------- POST ---------------------
     case 'POST':
-        switch ($route) {
-            case 'quotes':
-                if (!isset($input['quote'], $input['author_id'], $input['category_id'])) {
-                    $response = ['message' => 'Missing Required Parameters'];
-                    break;
-                }
-                $author_check = $mysqli->query("SELECT id FROM authors WHERE id=".$input['author_id']);
-                $category_check = $mysqli->query("SELECT id FROM categories WHERE id=".$input['category_id']);
-                if ($author_check->num_rows === 0) { $response = ['message' => 'author_id Not Found']; break; }
-                if ($category_check->num_rows === 0) { $response = ['message' => 'category_id Not Found']; break; }
-                $stmt = $mysqli->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
-                $stmt->bind_param("sii", $input['quote'], $input['author_id'], $input['category_id']);
-                $stmt->execute();
-                $response = [
-                    'id' => $stmt->insert_id,
-                    'quote' => $input['quote'],
-                    'author_id' => $input['author_id'],
-                    'category_id' => $input['category_id']
-                ];
-                break;
-
-            case 'authors':
-                if (!isset($input['author'])) { $response = ['message' => 'Missing Required Parameters']; break; }
-                $stmt = $mysqli->prepare("INSERT INTO authors (author) VALUES (?)");
-                $stmt->bind_param("s", $input['author']);
-                $stmt->execute();
-                $response = ['id' => $stmt->insert_id, 'author' => $input['author']];
-                break;
-
-            case 'categories':
-                if (!isset($input['category'])) { $response = ['message' => 'Missing Required Parameters']; break; }
-                $stmt = $mysqli->prepare("INSERT INTO categories (category) VALUES (?)");
-                $stmt->bind_param("s", $input['category']);
-                $stmt->execute();
-                $response = ['id' => $stmt->insert_id, 'category' => $input['category']];
-                break;
-
-            default:
-                $response = ['message' => 'Invalid Route'];
+        if ($route === 'quotes') {
+            $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
+            $stmt->execute([$input['quote'], $input['author_id'], $input['category_id']]);
+            $response = ['id' => $conn->lastInsertId(), 'message' => 'Quote Created'];
         }
         break;
 
-    // --------------------- PUT ---------------------
     case 'PUT':
-        switch ($route) {
-            case 'quotes':
-                if (!isset($input['id'], $input['quote'], $input['author_id'], $input['category_id'])) {
-                    $response = ['message' => 'Missing Required Parameters'];
-                    break;
-                }
-                $check = $mysqli->query("SELECT id FROM quotes WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Quotes Found']; break; }
-                $author_check = $mysqli->query("SELECT id FROM authors WHERE id=".$input['author_id']);
-                $category_check = $mysqli->query("SELECT id FROM categories WHERE id=".$input['category_id']);
-                if ($author_check->num_rows === 0) { $response = ['message' => 'author_id Not Found']; break; }
-                if ($category_check->num_rows === 0) { $response = ['message' => 'category_id Not Found']; break; }
-                $stmt = $mysqli->prepare("UPDATE quotes SET quote=?, author_id=?, category_id=? WHERE id=?");
-                $stmt->bind_param("siii", $input['quote'], $input['author_id'], $input['category_id'], $input['id']);
-                $stmt->execute();
-                $response = $input;
-                break;
-
-            case 'authors':
-                if (!isset($input['id'], $input['author'])) { $response = ['message' => 'Missing Required Parameters']; break; }
-                $check = $mysqli->query("SELECT id FROM authors WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Authors Found']; break; }
-                $stmt = $mysqli->prepare("UPDATE authors SET author=? WHERE id=?");
-                $stmt->bind_param("si", $input['author'], $input['id']);
-                $stmt->execute();
-                $response = $input;
-                break;
-
-            case 'categories':
-                if (!isset($input['id'], $input['category'])) { $response = ['message' => 'Missing Required Parameters']; break; }
-                $check = $mysqli->query("SELECT id FROM categories WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Categories Found']; break; }
-                $stmt = $mysqli->prepare("UPDATE categories SET category=? WHERE id=?");
-                $stmt->bind_param("si", $input['category'], $input['id']);
-                $stmt->execute();
-                $response = $input;
-                break;
-
-            default:
-                $response = ['message' => 'Invalid Route'];
+        if ($route === 'quotes') {
+            $stmt = $conn->prepare("UPDATE quotes SET quote=?, author_id=?, category_id=? WHERE id=?");
+            $stmt->execute([$input['quote'], $input['author_id'], $input['category_id'], $input['id']]);
+            $response = ['message' => 'Quote Updated'];
         }
         break;
 
-    // --------------------- DELETE ---------------------
     case 'DELETE':
-        if (!isset($input['id'])) { $response = ['message' => 'Missing Required Parameters']; break; }
-        switch ($route) {
-            case 'quotes':
-                $check = $mysqli->query("SELECT id FROM quotes WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Quotes Found']; break; }
-                $mysqli->query("DELETE FROM quotes WHERE id=".$input['id']);
-                $response = ['id' => $input['id']];
-                break;
-
-            case 'authors':
-                $check = $mysqli->query("SELECT id FROM authors WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Authors Found']; break; }
-                $mysqli->query("DELETE FROM authors WHERE id=".$input['id']);
-                $response = ['id' => $input['id']];
-                break;
-
-            case 'categories':
-                $check = $mysqli->query("SELECT id FROM categories WHERE id=".$input['id']);
-                if ($check->num_rows === 0) { $response = ['message' => 'No Categories Found']; break; }
-                $mysqli->query("DELETE FROM categories WHERE id=".$input['id']);
-                $response = ['id' => $input['id']];
-                break;
-
-            default:
-                $response = ['message' => 'Invalid Route'];
+        if (isset($input['id'])) {
+            $stmt = $conn->prepare("DELETE FROM $route WHERE id = ?");
+            $stmt->execute([$input['id']]);
+            $response = ['message' => 'Deleted ID ' . $input['id']];
         }
         break;
-
-    default:
-        $response = ['message' => 'Unsupported HTTP Method'];
 }
 
-echo json_encode($response, JSON_PRETTY_PRINT);
-$mysqli->close();
+echo json_encode($response ?: ['message' => 'No Data Found'], JSON_PRETTY_PRINT);
 ?>
