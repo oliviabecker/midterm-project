@@ -1,34 +1,24 @@
 <?php
-// 1. HEADERS & CORS (Essential for the Netlify Tester)
+
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-// Handle preflight 'OPTIONS' requests
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') { exit; }
 
 require __DIR__ . '/config/Database.php';
 
-// --------------------------------------------------------
-// 2. TEMPORARY BULK IMPORT (To satisfy count requirements)
-// --------------------------------------------------------
+
 try {
     $qCount = $conn->query("SELECT COUNT(*) FROM quotes")->fetchColumn();
-    $aCount = $conn->query("SELECT COUNT(*) FROM authors")->fetchColumn();
-    
-    if ($qCount < 25 || $aCount < 5) {
-        // Ensure at least 5 authors exist
+    if ($qCount < 25) {
         $conn->exec("INSERT INTO authors (id, author) VALUES 
             (1, 'Albert Einstein'), (2, 'Mark Twain'), (3, 'Maya Angelou'), 
             (4, 'Oscar Wilde'), (5, 'J.K. Rowling') ON CONFLICT DO NOTHING");
-
-        // Ensure at least 4 categories exist
         $conn->exec("INSERT INTO categories (id, category) VALUES 
             (1, 'Life'), (2, 'Success'), (3, 'Philosophy'), (4, 'Wisdom'),
             (5, 'Humor'), (6, 'Inspiration'), (7, 'Education') ON CONFLICT DO NOTHING");
-        
-        // Add a large batch of quotes to hit the 25+ requirement
         $conn->exec("INSERT INTO quotes (quote, author_id, category_id) VALUES 
             ('Imagination is more important than knowledge.', 1, 7),
             ('It is better to remain silent and be thought a fool than to speak and remove all doubt.', 2, 5),
@@ -37,13 +27,13 @@ try {
             ('The important thing is not to stop questioning.', 1, 7),
             ('If you tell the truth, you dont have to remember anything.', 2, 5),
             ('Everything in moderation, including moderation.', 4, 3),
-            ('Success is not final, failure is not fatal: it is the courage to continue that counts.', 2, 2),
+            ('Success is not final, failure is not fatal.', 2, 2),
             ('A person who never made a mistake never tried anything new.', 1, 7),
             ('The best way to cheer yourself up is to try to cheer somebody else up.', 2, 5),
             ('Be the change that you wish to see in the world.', 3, 6),
             ('Darkness cannot drive out darkness; only light can do that.', 3, 6),
             ('The only source of knowledge is experience.', 1, 7),
-            ('In the end, we will remember not the words of our enemies, but the silence of our friends.', 3, 6),
+            ('In the end, we will remember the silence of our friends.', 3, 6),
             ('Life is what happens when you’re making other plans.', 1, 1),
             ('Get busy living or get busy dying.', 4, 1),
             ('You only live once, but if you do it right, once is enough.', 4, 3),
@@ -59,9 +49,7 @@ try {
     }
 } catch (Exception $e) { /* Silent fail */ }
 
-// --------------------------------------------------------
-// 3. API ROUTING LOGIC
-// --------------------------------------------------------
+
 $method = $_SERVER['REQUEST_METHOD'];
 $request_uri = $_SERVER['REQUEST_URI'];
 $path = parse_url($request_uri, PHP_URL_PATH);
@@ -73,88 +61,84 @@ if (!$route || $route === 'api') {
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
-$response = [];
 
 try {
     switch ($method) {
         case 'GET':
-            ini_set('display_errors', 0); // Hide PHP notices from the tester
+            ini_set('display_errors', 0);
             $id = isset($_GET['id']) ? intval($_GET['id']) : null;
             $author_id = isset($_GET['author_id']) ? intval($_GET['author_id']) : null;
             $category_id = isset($_GET['category_id']) ? intval($_GET['category_id']) : null;
             $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 50;
 
             if ($route === 'quotes') {
-                $sql = "SELECT q.id, q.quote, a.author, c.category 
-                        FROM quotes q
+                $sql = "SELECT q.id, q.quote, a.author, c.category FROM quotes q
                         JOIN authors a ON q.author_id = a.id
                         JOIN categories c ON q.category_id = c.id";
-                
                 $where = [];
                 if ($id) { $where[] = "q.id = $id"; }
                 else {
                     if ($author_id) $where[] = "q.author_id = $author_id";
                     if ($category_id) $where[] = "q.category_id = $category_id";
                 }
-                
                 if ($where) $sql .= " WHERE " . implode(' AND ', $where);
                 if (!$id) {
                     $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
                     $sql .= " LIMIT $limit";
                 }
-                
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
                 if ($id) {
-                    if (count($response) > 0) {
-                        echo json_encode($response[0], JSON_PRETTY_PRINT);
-                    } else {
-                        echo json_encode(['message' => 'No Quotes Found']);
-                    }
+                    if (count($response) > 0) { echo json_encode($response[0], JSON_PRETTY_PRINT); }
+                    else { echo json_encode(['message' => 'No Quotes Found']); }
                     exit;
                 }
+                echo json_encode($response, JSON_PRETTY_PRINT);
+                exit;
             } 
             elseif ($route === 'authors' || $route === 'categories') {
                 $isAuthor = ($route === 'authors');
                 $table = $isAuthor ? 'authors' : 'categories';
                 $col = $isAuthor ? 'author' : 'category';
-                
                 $sql = "SELECT id, $col FROM $table";
                 if ($id) $sql .= " WHERE id = $id";
-                
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
                 if ($id) {
-                    if (count($response) > 0) {
-                        echo json_encode($response[0], JSON_PRETTY_PRINT);
-                    } else {
-                        $errorMsg = $isAuthor ? 'author_id Not Found' : 'category_id Not Found';
-                        echo json_encode(['message' => $errorMsg]);
-                    }
+                    if (count($response) > 0) { echo json_encode($response[0], JSON_PRETTY_PRINT); }
+                    else { echo json_encode(['message' => ($isAuthor ? 'author_id Not Found' : 'category_id Not Found')]); }
                     exit;
                 }
+                echo json_encode($response, JSON_PRETTY_PRINT);
+                exit;
             }
             break;
 
         case 'POST':
-            if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
-                $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
-                $stmt->execute([$input['quote'], $input['author_id'], $input['category_id']]);
-                $response = ['id' => $conn->lastInsertId(), 'quote' => $input['quote'], 'author_id' => $input['author_id'], 'category_id' => $input['category_id']];
-            } else {
-                $response = ['message' => 'Missing Required Parameters'];
-            }
-            break;
-
         case 'PUT':
-            if ($route === 'quotes' && isset($input['id'], $input['quote'], $input['author_id'], $input['category_id'])) {
-                $stmt = $conn->prepare("UPDATE quotes SET quote=?, author_id=?, category_id=? WHERE id=?");
-                $stmt->execute([$input['quote'], $input['author_id'], $input['category_id'], $input['id']]);
-                $response = ['id' => $input['id'], 'quote' => $input['quote'], 'author_id' => $input['author_id'], 'category_id' => $input['category_id']];
+            if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
+                // Validation for Foreign Keys
+                $auth = $conn->prepare("SELECT id FROM authors WHERE id = ?");
+                $auth->execute([$input['author_id']]);
+                if (!$auth->fetch()) { echo json_encode(['message' => 'author_id Not Found']); exit; }
+
+                $cat = $conn->prepare("SELECT id FROM categories WHERE id = ?");
+                $cat->execute([$input['category_id']]);
+                if (!$cat->fetch()) { echo json_encode(['message' => 'category_id Not Found']); exit; }
+
+                if ($method === 'POST') {
+                    $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
+                    $stmt->execute([$input['quote'], $input['author_id'], $input['category_id']]);
+                    echo json_encode(['id' => $conn->lastInsertId(), 'quote' => $input['quote'], 'author_id' => $input['author_id'], 'category_id' => $input['category_id']]);
+                } else {
+                    if (!isset($input['id'])) { echo json_encode(['message' => 'Missing Required Parameters']); exit; }
+                    $stmt = $conn->prepare("UPDATE quotes SET quote=?, author_id=?, category_id=? WHERE id=?");
+                    $stmt->execute([$input['quote'], $input['author_id'], $input['category_id'], $input['id']]);
+                    echo json_encode(['id' => $input['id'], 'quote' => $input['quote'], 'author_id' => $input['author_id'], 'category_id' => $input['category_id']]);
+                }
+                exit;
             } else {
-                $response = ['message' => 'Missing Required Parameters'];
+                echo json_encode(['message' => 'Missing Required Parameters']); exit;
             }
             break;
 
@@ -162,13 +146,11 @@ try {
             if (isset($input['id'])) {
                 $stmt = $conn->prepare("DELETE FROM quotes WHERE id = ?");
                 $stmt->execute([$input['id']]);
-                $response = ['id' => $input['id']];
+                echo json_encode(['id' => $input['id']]);
+                exit;
             }
             break;
     }
 } catch (PDOException $e) {
-    $response = ['message' => $e->getMessage()];
+    echo json_encode(['message' => $e->getMessage()]);
 }
-
-// Return array for general searches
-echo json_encode($response, JSON_PRETTY_PRINT);
