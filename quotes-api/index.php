@@ -1,5 +1,5 @@
 <?php
-
+// 1. HEADERS & CORS
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
@@ -21,19 +21,19 @@ try {
             (5, 'Humor'), (6, 'Inspiration'), (7, 'Education') ON CONFLICT DO NOTHING");
         $conn->exec("INSERT INTO quotes (quote, author_id, category_id) VALUES 
             ('Imagination is more important than knowledge.', 1, 7),
-            ('It is better to remain silent and be thought a fool than to speak and remove all doubt.', 2, 5),
-            ('I have learned that people will forget what you said, but people will never forget how you made them feel.', 3, 4),
+            ('It is better to remain silent and be thought a fool.', 2, 5),
+            ('People will never forget how you made them feel.', 3, 4),
             ('I can resist everything except temptation.', 4, 3),
             ('The important thing is not to stop questioning.', 1, 7),
             ('If you tell the truth, you dont have to remember anything.', 2, 5),
             ('Everything in moderation, including moderation.', 4, 3),
             ('Success is not final, failure is not fatal.', 2, 2),
             ('A person who never made a mistake never tried anything new.', 1, 7),
-            ('The best way to cheer yourself up is to try to cheer somebody else up.', 2, 5),
+            ('The best way to cheer yourself up is to cheer somebody else up.', 2, 5),
             ('Be the change that you wish to see in the world.', 3, 6),
             ('Darkness cannot drive out darkness; only light can do that.', 3, 6),
             ('The only source of knowledge is experience.', 1, 7),
-            ('In the end, we will remember the silence of our friends.', 3, 6),
+            ('The silence of our friends is what hurts.', 3, 6),
             ('Life is what happens when you’re making other plans.', 1, 1),
             ('Get busy living or get busy dying.', 4, 1),
             ('You only live once, but if you do it right, once is enough.', 4, 3),
@@ -42,7 +42,7 @@ try {
             ('Stay hungry, stay foolish.', 1, 2),
             ('Whatever you are, be a good one.', 2, 3),
             ('The best way to predict your future is to create it.', 3, 2),
-            ('Do what you can, with what you have, where you are.', 2, 6),
+            ('Do what you can, with what you have.', 2, 6),
             ('The mind is everything. What you think you become.', 1, 3),
             ('An unexamined life is not worth living.', 4, 3)
             ON CONFLICT DO NOTHING");
@@ -72,44 +72,40 @@ try {
             $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 50;
 
             if ($route === 'quotes') {
-                $sql = "SELECT q.id, q.quote, a.author, c.category FROM quotes q
-                        JOIN authors a ON q.author_id = a.id
-                        JOIN categories c ON q.category_id = c.id";
-                $where = [];
-                if ($id) { $where[] = "q.id = $id"; }
-                else {
-                    if ($author_id) $where[] = "q.author_id = $author_id";
-                    if ($category_id) $where[] = "q.category_id = $category_id";
-                }
-                if ($where) $sql .= " WHERE " . implode(' AND ', $where);
-                if (!$id) {
-                    $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
-                    $sql .= " LIMIT $limit";
-                }
-                $stmt = $conn->query($sql);
-                $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 if ($id) {
-                    if (count($response) > 0) { echo json_encode($response[0], JSON_PRETTY_PRINT); }
-                    else { echo json_encode(['message' => 'No Quotes Found']); }
+                    $check = $conn->prepare("SELECT q.id, q.quote, a.author, c.category FROM quotes q 
+                                            JOIN authors a ON q.author_id = a.id 
+                                            JOIN categories c ON q.category_id = c.id WHERE q.id = ?");
+                    $check->execute([$id]);
+                    $quote = $check->fetch(PDO::FETCH_ASSOC);
+                    echo $quote ? json_encode($quote, JSON_PRETTY_PRINT) : json_encode(['message' => 'No Quotes Found']);
                     exit;
                 }
-                echo json_encode($response, JSON_PRETTY_PRINT);
+                $sql = "SELECT q.id, q.quote, a.author, c.category FROM quotes q JOIN authors a ON q.author_id = a.id JOIN categories c ON q.category_id = c.id";
+                $where = [];
+                if ($author_id) $where[] = "q.author_id = $author_id";
+                if ($category_id) $where[] = "q.category_id = $category_id";
+                if ($where) $sql .= " WHERE " . implode(' AND ', $where);
+                $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
+                $sql .= " LIMIT $limit";
+                $stmt = $conn->query($sql);
+                $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo empty($response) ? json_encode(['message' => 'No Quotes Found']) : json_encode($response, JSON_PRETTY_PRINT);
                 exit;
             } 
             elseif ($route === 'authors' || $route === 'categories') {
                 $isAuthor = ($route === 'authors');
                 $table = $isAuthor ? 'authors' : 'categories';
                 $col = $isAuthor ? 'author' : 'category';
-                $sql = "SELECT id, $col FROM $table";
-                if ($id) $sql .= " WHERE id = $id";
-                $stmt = $conn->query($sql);
-                $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 if ($id) {
-                    if (count($response) > 0) { echo json_encode($response[0], JSON_PRETTY_PRINT); }
-                    else { echo json_encode(['message' => ($isAuthor ? 'author_id Not Found' : 'category_id Not Found')]); }
+                    $stmt = $conn->prepare("SELECT id, $col FROM $table WHERE id = ?");
+                    $stmt->execute([$id]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                    echo $row ? json_encode($row, JSON_PRETTY_PRINT) : json_encode(['message' => ($isAuthor ? 'author_id Not Found' : 'category_id Not Found')]);
                     exit;
                 }
-                echo json_encode($response, JSON_PRETTY_PRINT);
+                $stmt = $conn->query("SELECT id, $col FROM $table ORDER BY id");
+                echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC), JSON_PRETTY_PRINT);
                 exit;
             }
             break;
@@ -117,7 +113,6 @@ try {
         case 'POST':
         case 'PUT':
             if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
-                // Validation for Foreign Keys
                 $auth = $conn->prepare("SELECT id FROM authors WHERE id = ?");
                 $auth->execute([$input['author_id']]);
                 if (!$auth->fetch()) { echo json_encode(['message' => 'author_id Not Found']); exit; }
@@ -143,11 +138,13 @@ try {
             break;
 
         case 'DELETE':
-            if (isset($input['id'])) {
+            if ($route === 'quotes' && isset($input['id'])) {
                 $stmt = $conn->prepare("DELETE FROM quotes WHERE id = ?");
                 $stmt->execute([$input['id']]);
                 echo json_encode(['id' => $input['id']]);
                 exit;
+            } else {
+                echo json_encode(['message' => 'Missing Required Parameters']); exit;
             }
             break;
     }
