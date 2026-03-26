@@ -138,13 +138,30 @@ try {
             break;
 
         case 'DELETE':
-            if ($route === 'quotes' && isset($input['id'])) {
-                $stmt = $conn->prepare("DELETE FROM quotes WHERE id = ?");
+          
+            $table = '';
+            if ($route === 'quotes') { $table = 'quotes'; }
+            elseif ($route === 'authors') { $table = 'authors'; }
+            elseif ($route === 'categories') { $table = 'categories'; }
+
+        
+            if ($table && isset($input['id'])) {
+                $stmt = $conn->prepare("DELETE FROM $table WHERE id = ?");
                 $stmt->execute([$input['id']]);
+                
+            
                 echo json_encode(['id' => $input['id']]);
                 exit;
-            } else {
-                echo json_encode(['message' => 'Missing Required Parameters']); exit;
+            } 
+           
+            elseif ($route === 'quotes') {
+                echo json_encode(['message' => 'No Quotes Found']);
+                exit;
+            }
+         
+            else {
+                echo json_encode(['message' => 'Missing Required Parameters']);
+                exit;
             }
             break;
     }
