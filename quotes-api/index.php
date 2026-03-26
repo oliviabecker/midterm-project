@@ -1,9 +1,9 @@
 <?php
 header('Content-Type: application/json');
-require 'Database.php'; // This uses the $conn variable we set up earlier
+require __DIR__ . '/config/Database.php';
 
 // --------------------------------------------------------
-// 1. AUTO-IMPORT (Builds your tables and data on Render)
+// 1. AUTO-IMPORT
 // --------------------------------------------------------
 try {
     $conn->exec("
@@ -31,7 +31,7 @@ try {
             ON CONFLICT DO NOTHING");
     }
 } catch (PDOException $e) {
-    // Silent fail for setup so it doesn't break the API output
+  
 }
 
 // --------------------------------------------------------
