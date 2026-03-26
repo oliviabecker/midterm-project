@@ -65,45 +65,72 @@ $response = [];
 try {
     switch ($method) {
         case 'GET':
+           
+            ini_set('display_errors', 0);
+
             $id = isset($_GET['id']) ? intval($_GET['id']) : null;
             $author_id = isset($_GET['author_id']) ? intval($_GET['author_id']) : null;
             $category_id = isset($_GET['category_id']) ? intval($_GET['category_id']) : null;
-            
-        
             $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 50;
 
             if ($route === 'quotes') {
-               
                 $sql = "SELECT q.id, q.quote, a.author, c.category 
                         FROM quotes q
                         JOIN authors a ON q.author_id = a.id
                         JOIN categories c ON q.category_id = c.id";
                 
                 $where = [];
-                if ($id) $where[] = "q.id = $id";
-                if ($author_id) $where[] = "q.author_id = $author_id";
-                if ($category_id) $where[] = "q.category_id = $category_id";
+                
+                if ($id) {
+                    $where[] = "q.id = $id";
+                } else {
+                    if ($author_id) $where[] = "q.author_id = $author_id";
+                    if ($category_id) $where[] = "q.category_id = $category_id";
+                }
                 
                 if ($where) $sql .= " WHERE " . implode(' AND ', $where);
-                $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
-                $sql .= " LIMIT $limit";
+                
+                
+                if (!$id) {
+                    $sql .= isset($_GET['random']) ? " ORDER BY RANDOM()" : " ORDER BY q.id";
+                    $sql .= " LIMIT $limit";
+                }
                 
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                if ($id && !$response) { $response = ['message' => 'No Quotes Found']; }
+                
+                if ($id && count($response) > 0) {
+                    echo json_encode($response[0], JSON_PRETTY_PRINT);
+                    exit;
+                } 
+               
+                elseif ($id) {
+                    echo json_encode(['message' => 'Quote Not Found']);
+                    exit;
+                }
             } 
+            // Authors/Categories
             elseif ($route === 'authors' || $route === 'categories') {
                 $table = ($route === 'authors') ? 'authors' : 'categories';
                 $col = ($route === 'authors') ? 'author' : 'category';
+                
                 $sql = "SELECT id, $col FROM $table";
                 if ($id) $sql .= " WHERE id = $id";
+                
                 $stmt = $conn->query($sql);
                 $response = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                if ($id && !$response) { $response = ['message' => 'id Not Found']; }
+
+                if ($id && count($response) > 0) {
+                    echo json_encode($response[0], JSON_PRETTY_PRINT);
+                    exit;
+                } elseif ($id) {
+                    echo json_encode(['message' => 'id Not Found']);
+                    exit;
+                }
             }
             break;
-
+        
         case 'POST':
             if ($route === 'quotes' && isset($input['quote'], $input['author_id'], $input['category_id'])) {
                 $stmt = $conn->prepare("INSERT INTO quotes (quote, author_id, category_id) VALUES (?, ?, ?)");
