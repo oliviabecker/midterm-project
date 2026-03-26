@@ -6,17 +6,19 @@ $databaseUrl = getenv('DATABASE_URL');
 
 try {
     if (!$databaseUrl) {
-        throw new Exception("DATABASE_URL is not set in Render environment variables.");
+        die("Error: DATABASE_URL is not set in Render Environment Variables.");
     }
 
-   
-    $conn = new PDO($databaseUrl);
     
-  
+    $pdoUrl = str_replace("postgresql://", "pgsql:", $databaseUrl);
+
+    // Create the connection
+    $conn = new PDO($pdoUrl);
+    
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-} catch (Exception $e) {
-    
-    error_log("Connection failed: " . $e->getMessage());
-    die("Database connection error. Please check your logs.");
+} catch (PDOException $e) {
+   
+    echo "Connection failed: " . $e->getMessage();
+    exit;
 }
